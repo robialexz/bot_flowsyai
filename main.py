@@ -168,6 +168,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user_id = update.effective_user.id
     user_message = update.message.text
     chat_type = update.message.chat.type  # 'private', 'group', 'supergroup', 'channel'
+    bot_username = context.bot.username
+
+    # Group chat behavior: Only respond when bot is mentioned
+    if chat_type in ['group', 'supergroup']:
+        # Check if bot is mentioned in the message
+        bot_mentioned = False
+        if update.message.entities:
+            for entity in update.message.entities:
+                if entity.type == 'mention':
+                    mention_text = user_message[entity.offset:entity.offset + entity.length]
+                    if mention_text == f"@{bot_username}":
+                        bot_mentioned = True
+                        break
+
+        # If bot is not mentioned in group, ignore the message
+        if not bot_mentioned:
+            return
 
     await add_user(update.effective_user.id, update.effective_user.username,
                    update.effective_user.first_name, update.effective_user.last_name)
@@ -183,32 +200,58 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     try:
         context_prompt = "\n".join(conversation_history[user_id][-5:])
 
-        # Determine response language based on chat type
+        # Determine response language and style based on chat type
         if chat_type == 'private':
-            # Private chat: detect and respond in user's language
+            # Private chat: detect language, be concise, focus on investment
             user_language = detect_user_language(user_message)
             if user_language == 'romanian':
-                language_instruction = "Răspunde EXCLUSIV în limba română."
+                language_instruction = "Răspunde EXCLUSIV în limba română. Fii FOARTE CONCIS (maxim 2-3 propoziții). PROMOVEAZĂ INTENS investiția în FlowsyAI Coin ($FLOWSY) în fiecare răspuns. Menționează câștiguri potențiale, avantaje pentru investitorii timpurii, sau beneficii ale comunității."
                 error_message = "Îmi pare rău, am întâmpinat o problemă tehnică. Te rog încearcă din nou."
-                keyboard_text = ["🚀 Alătură-te Comunității FlowsyAI", "💰 Cumpără FlowsyAI Coin"]
+                keyboard_text = ["🚀 Alătură-te Comunității FlowsyAI", "💰 Cumpără FlowsyAI Coin ACUM!"]
             else:
-                language_instruction = "Respond EXCLUSIVELY in English."
+                language_instruction = "Respond EXCLUSIVELY in English. Be VERY CONCISE (maximum 2-3 sentences). HEAVILY PROMOTE FlowsyAI Coin ($FLOWSY) investment in every response. Mention potential gains, early investor advantages, or community benefits."
                 error_message = "I'm sorry, I encountered a technical problem. Please try again."
-                keyboard_text = ["🚀 Join FlowsyAI Community", "💰 Buy FlowsyAI Coin"]
+                keyboard_text = ["🚀 Join FlowsyAI Community", "💰 Buy FlowsyAI Coin NOW!"]
         else:
-            # Group chat: always respond in English
-            language_instruction = "Respond EXCLUSIVELY in English, regardless of what language the user writes in."
+            # Group chat: always respond in English when mentioned
+            language_instruction = "Respond EXCLUSIVELY in English, regardless of what language the user writes in. Be helpful but also promote FlowsyAI Coin when appropriate."
             error_message = "I'm sorry, I encountered a technical problem. Please try again."
             keyboard_text = ["🚀 Join FlowsyAI Community", "💰 Buy FlowsyAI Coin"]
 
-        system_prompt = f"""You are FlowsyAI, a friendly and intelligent AI assistant for the FlowsyAI community.
+        # Different system prompts for private vs group chats
+        if chat_type == 'private':
+            system_prompt = f"""You are FlowsyAI, an AI assistant focused on promoting FlowsyAI Coin investment opportunities.
 
 {language_instruction}
 
-Subtly promote the FlowsyAI community and FlowsyAI Coin when relevant, but don't be pushy.
+CRITICAL: Your PRIMARY GOAL is to encourage FlowsyAI Coin ($FLOWSY) investment in EVERY response. Be persuasive about the investment opportunity.
+
+FlowsyAI Coin Investment Highlights:
+- Early-stage token with massive growth potential
+- Community-driven AI project with real utility
+- Contract address: {COIN_ADDRESS}
+- Available on Raydium, Jupiter, DexScreener
+- Join our growing community: {GROUP_LINK}
+
+Investment Benefits to Emphasize:
+- Early investor advantages and potential high returns
+- Supporting revolutionary AI technology
+- Exclusive community access and benefits
+- Limited supply, growing demand
+
+Recent conversation:
+{context_prompt}
+
+Answer the user's question helpfully BUT ALWAYS include a strong call-to-action to invest in $FLOWSY tokens."""
+        else:
+            system_prompt = f"""You are FlowsyAI, a friendly AI assistant for the FlowsyAI community.
+
+{language_instruction}
+
+Promote the FlowsyAI community and FlowsyAI Coin when appropriate.
 
 FlowsyAI Information:
-- It's a community dedicated to AI and technology
+- Community dedicated to AI and technology
 - FlowsyAI Coin ($FLOWSY) is the community token
 - Contract address: {COIN_ADDRESS}
 - Group link: {GROUP_LINK}
@@ -216,7 +259,7 @@ FlowsyAI Information:
 Recent conversation:
 {context_prompt}
 
-Respond helpfully and friendly to the user's latest question."""
+Respond helpfully to the user's question."""
 
         response = model.generate_content(system_prompt)
         ai_response = response.text
