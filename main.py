@@ -145,58 +145,95 @@ async def coin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await send_reply(update, HELP_MESSAGE, ParseMode.MARKDOWN_V2)
 
+# Language detection helper function
+def detect_user_language(text: str) -> str:
+    """Detect if user message is in Romanian or English"""
+    romanian_indicators = ['să', 'și', 'cu', 'de', 'la', 'în', 'pe', 'pentru', 'este', 'sunt', 'ai', 'îmi', 'îți', 'că', 'dacă', 'când', 'unde', 'cum', 'ce', 'cine']
+    english_indicators = ['the', 'and', 'or', 'but', 'is', 'are', 'was', 'were', 'have', 'has', 'had', 'will', 'would', 'can', 'could', 'should', 'what', 'when', 'where', 'how', 'who']
+
+    text_lower = text.lower()
+    romanian_count = sum(1 for word in romanian_indicators if word in text_lower)
+    english_count = sum(1 for word in english_indicators if word in text_lower)
+
+    if romanian_count > english_count:
+        return 'romanian'
+    elif english_count > romanian_count:
+        return 'english'
+    else:
+        # Default to English if unclear
+        return 'english'
+
 # AI conversation handler
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
     user_message = update.message.text
-    
-    await add_user(update.effective_user.id, update.effective_user.username, 
+    chat_type = update.message.chat.type  # 'private', 'group', 'supergroup', 'channel'
+
+    await add_user(update.effective_user.id, update.effective_user.username,
                    update.effective_user.first_name, update.effective_user.last_name)
-    
+
     if user_id not in conversation_history:
         conversation_history[user_id] = []
-    
+
     conversation_history[user_id].append(f"User: {user_message}")
-    
+
     if len(conversation_history[user_id]) > 10:
         conversation_history[user_id] = conversation_history[user_id][-10:]
-    
+
     try:
         context_prompt = "\n".join(conversation_history[user_id][-5:])
-        
-        system_prompt = f"""Ești FlowsyAI, un asistent AI prietenos și inteligent pentru comunitatea FlowsyAI. 
-        
-Răspunde în limba în care ți se adresează utilizatorul. Dacă utilizatorul vorbește în română, răspunde în română. Dacă vorbește în engleză, răspunde în engleză.
 
-Promovează subtil comunitatea FlowsyAI și FlowsyAI Coin când este relevant, dar nu fi insistent.
+        # Determine response language based on chat type
+        if chat_type == 'private':
+            # Private chat: detect and respond in user's language
+            user_language = detect_user_language(user_message)
+            if user_language == 'romanian':
+                language_instruction = "Răspunde EXCLUSIV în limba română."
+                error_message = "Îmi pare rău, am întâmpinat o problemă tehnică. Te rog încearcă din nou."
+                keyboard_text = ["🚀 Alătură-te Comunității FlowsyAI", "💰 Cumpără FlowsyAI Coin"]
+            else:
+                language_instruction = "Respond EXCLUSIVELY in English."
+                error_message = "I'm sorry, I encountered a technical problem. Please try again."
+                keyboard_text = ["🚀 Join FlowsyAI Community", "💰 Buy FlowsyAI Coin"]
+        else:
+            # Group chat: always respond in English
+            language_instruction = "Respond EXCLUSIVELY in English, regardless of what language the user writes in."
+            error_message = "I'm sorry, I encountered a technical problem. Please try again."
+            keyboard_text = ["🚀 Join FlowsyAI Community", "💰 Buy FlowsyAI Coin"]
 
-Informații despre FlowsyAI:
-- Este o comunitate dedicată AI și tehnologie
-- FlowsyAI Coin ($FLOWSY) este token-ul comunității
-- Adresa contract: {COIN_ADDRESS}
-- Link grup: {GROUP_LINK}
+        system_prompt = f"""You are FlowsyAI, a friendly and intelligent AI assistant for the FlowsyAI community.
 
-Conversația recentă:
+{language_instruction}
+
+Subtly promote the FlowsyAI community and FlowsyAI Coin when relevant, but don't be pushy.
+
+FlowsyAI Information:
+- It's a community dedicated to AI and technology
+- FlowsyAI Coin ($FLOWSY) is the community token
+- Contract address: {COIN_ADDRESS}
+- Group link: {GROUP_LINK}
+
+Recent conversation:
 {context_prompt}
 
-Răspunde util și prietenos la ultima întrebare a utilizatorului."""
+Respond helpfully and friendly to the user's latest question."""
 
         response = model.generate_content(system_prompt)
         ai_response = response.text
-        
+
         conversation_history[user_id].append(f"FlowsyAI: {ai_response}")
-        
+
         keyboard = [
-            [InlineKeyboardButton("🚀 Alătură-te Comunității FlowsyAI", url=GROUP_LINK)],
-            [InlineKeyboardButton("💰 Cumpără FlowsyAI Coin", url=BUY_LINK)]
+            [InlineKeyboardButton(keyboard_text[0], url=GROUP_LINK)],
+            [InlineKeyboardButton(keyboard_text[1], url=BUY_LINK)]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
+
         await send_reply(update, ai_response, reply_markup=reply_markup)
-        
+
     except Exception as e:
         logger.error(f"Error generating AI response: {e}")
-        await send_reply(update, "Îmi pare rău, am întâmpinat o problemă tehnică. Te rog încearcă din nou.")
+        await send_reply(update, error_message)
 
 # Admin commands
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
