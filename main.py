@@ -36,9 +36,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Configure Gemini AI
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash')
+# Gemini AI will be configured in main()
+model = None
 
 # Initialize conversation history
 conversation_history = {}
@@ -241,6 +240,16 @@ async def weekly_tip(context: ContextTypes.DEFAULT_TYPE):
     await asyncio.gather(*tasks, return_exceptions=True)
 
 def main() -> None:
+    # Configure Gemini AI
+    genai.configure(api_key=GEMINI_API_KEY)
+    global model
+    model = genai.GenerativeModel('gemini-1.5-flash')
+    logger.info("Gemini model 'gemini-1.5-flash' initialized.")
+
+    # Initialize database
+    asyncio.run(init_db())
+    logger.info("Database initialized successfully.")
+
     application = Application.builder().token(TELEGRAM_TOKEN).build()
 
     # Add handlers
@@ -257,11 +266,19 @@ def main() -> None:
     job_queue = application.job_queue
     job_queue.run_repeating(weekly_tip, interval=timedelta(weeks=1), first=timedelta(seconds=10))
 
-    # Initialize database
-    asyncio.run(init_db())
-    
-    logger.info("FlowsyAI Bot started successfully!")
-    application.run_polling()
+    logger.info("Starting bot...")
+
+    # Fix for Python 3.13+ compatibility
+    try:
+        application.run_polling()
+    except RuntimeError as e:
+        if "There is no current event loop" in str(e):
+            # Create new event loop for Python 3.13+
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            application.run_polling()
+        else:
+            raise
 
 if __name__ == '__main__':
     main()
